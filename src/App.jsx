@@ -49,7 +49,7 @@ const tripData = {
       beds: 6,
       address: "10 Huckleberry Hill Rd, Edgartown, MA, 02539 United States of America",
       link: "https://www.vrbo.com/4372900ha",
-      checkIn: "2pm",
+      checkIn: "4pm",
       checkOut: "10am",
       amenities: ["Parking", "Outdoor Shower", "Kitchen"],
       image: "H1.jpg",
@@ -59,7 +59,7 @@ const tripData = {
       beds: 5,
       address: "167 Pennywise Path, Edgartown, MA, 02539 United States of America",
       link: "https://www.vrbo.com/4930799ha",
-      checkIn: "4pm",
+      checkIn: "2pm",
       checkOut: "10am",
       amenities: ["Pool", "Hot Tub", "Parking", "Outdoor Shower", "Kitchen"],
       image: "H2.jpg",
@@ -400,6 +400,100 @@ function sortByTime(a, b) {
   return parseTime(a.time) - parseTime(b.time);
 }
 
+const MV_WEATHER_COORDS = {
+  latitude: 41.389,
+  longitude: -70.513,
+};
+
+function weatherCodeToLabel(code) {
+  const labels = {
+    0: "Clear",
+    1: "Mostly clear",
+    2: "Partly cloudy",
+    3: "Cloudy",
+    45: "Foggy",
+    48: "Rime fog",
+    51: "Light drizzle",
+    53: "Drizzle",
+    55: "Heavy drizzle",
+    56: "Freezing drizzle",
+    57: "Freezing drizzle",
+    61: "Light rain",
+    63: "Rain",
+    65: "Heavy rain",
+    66: "Freezing rain",
+    67: "Freezing rain",
+    71: "Light snow",
+    73: "Snow",
+    75: "Heavy snow",
+    77: "Snow grains",
+    80: "Light showers",
+    81: "Showers",
+    82: "Heavy showers",
+    85: "Snow showers",
+    86: "Snow showers",
+    95: "Thunderstorms",
+    96: "Thunderstorms with hail",
+    99: "Thunderstorms with hail",
+  };
+  return labels[code] || "Weather";
+}
+
+function weatherCodeToIcon(code) {
+  if ([0, 1].includes(code)) return "☀️";
+  if (code === 2) return "⛅";
+  if (code === 3) return "☁️";
+  if ([45, 48].includes(code)) return "🌫️";
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "🌧️";
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return "🌨️";
+  if ([95, 96, 99].includes(code)) return "⛈️";
+  return "🌤️";
+}
+
+function formatWeatherDate(dateString) {
+  const date = new Date(`${dateString}T12:00:00`);
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function useWeather() {
+  const [weather, setWeather] = useState({ status: "loading", data: null, error: "" });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      latitude: String(MV_WEATHER_COORDS.latitude),
+      longitude: String(MV_WEATHER_COORDS.longitude),
+      current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation",
+      daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+      temperature_unit: "fahrenheit",
+      wind_speed_unit: "mph",
+      precipitation_unit: "inch",
+      timezone: "America/New_York",
+      forecast_days: "7",
+    });
+
+    async function loadWeather() {
+      try {
+        setWeather({ status: "loading", data: null, error: "" });
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Weather request failed.");
+        const data = await response.json();
+        setWeather({ status: "loaded", data, error: "" });
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        setWeather({ status: "error", data: null, error: error.message || "Could not load weather." });
+      }
+    }
+
+    loadWeather();
+    return () => controller.abort();
+  }, []);
+
+  return weather;
+}
+
 function normalizeUrl(url) {
   const trimmed = String(url || "").trim();
   if (!trimmed) return "";
@@ -437,6 +531,8 @@ function runSelfTests() {
   console.assert(sharedKeys.events === "calendar_events", "Shared state keys should be stable");
   console.assert(typeof withTimeout === "function", "withTimeout should exist for Supabase diagnostics");
   console.assert(tripData.guests.includes("Luke") && !tripData.guests.includes("Zach"), "Guest list should include Luke instead of Zach");
+  console.assert(weatherCodeToLabel(0) === "Clear", "Weather code labels should work");
+  console.assert(weatherCodeToIcon(61) === "🌧️", "Weather code icons should work");
 }
 
 if (typeof window !== "undefined") runSelfTests();
@@ -563,7 +659,7 @@ function Header({ activePage, setActivePage }) {
     <header className="sticky top-0 z-20 border-b border-white/40 bg-white/45 backdrop-blur-2xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <button type="button" onClick={() => setActivePage("home")} className="text-left">
-          <div className="text-xs uppercase tracking-[0.28em] text-sky-700/80">MV 2026</div>
+          <div className="text-xs uppercase tracking-[0.28em] text-sky-700/80">Martha's Vineyard 2026</div>
           <div className="text-xl font-semibold tracking-tight text-slate-800">Vacation HQ</div>
         </button>
 
@@ -651,6 +747,94 @@ function MobileNav({ activePage, setActivePage, selectedGuest, setSelectedGuest,
   );
 }
 
+function WeatherCard() {
+  const weather = useWeather();
+  const current = weather.data?.current;
+  const daily = weather.data?.daily;
+  const todayCode = current?.weather_code;
+  const todayIndex = 0;
+
+  if (weather.status === "loading") {
+    return (
+      <GlassCard className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Martha’s Vineyard Weather</h2>
+            <p className="mt-1 text-sm text-slate-600">Loading current island conditions...</p>
+          </div>
+          <div className="text-4xl">🌤️</div>
+        </div>
+        <div className="mt-5 h-28 animate-pulse rounded-[1.5rem] bg-white/45" />
+      </GlassCard>
+    );
+  }
+
+  if (weather.status === "error") {
+    return (
+      <GlassCard className="p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Martha’s Vineyard Weather</h2>
+            <p className="mt-1 text-sm text-slate-600">Couldn’t load live weather right now.</p>
+          </div>
+          <div className="text-4xl">🌦️</div>
+        </div>
+        <div className="mt-5 rounded-[1.5rem] bg-white/45 p-4 text-sm text-slate-600">
+          {weather.error || "Try refreshing in a minute."}
+        </div>
+      </GlassCard>
+    );
+  }
+
+  return (
+    <GlassCard className="p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Martha’s Vineyard Weather</h2>
+          <p className="mt-1 text-sm text-slate-600">Live forecast for Edgartown.</p>
+        </div>
+        <div className="text-4xl">{weatherCodeToIcon(todayCode)}</div>
+      </div>
+
+      <div className="mt-5 rounded-[1.5rem] bg-gradient-to-br from-sky-100/80 to-yellow-100/70 p-5">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="text-5xl font-light text-slate-900">{Math.round(current.temperature_2m)}°</div>
+            <div className="mt-1 text-sm font-semibold text-slate-700">{weatherCodeToLabel(todayCode)}</div>
+            <div className="mt-1 text-xs text-slate-600">Feels like {Math.round(current.apparent_temperature)}° • Wind {Math.round(current.wind_speed_10m)} mph</div>
+          </div>
+          {daily && (
+            <div className="rounded-2xl bg-white/55 px-3 py-2 text-right text-sm text-slate-700">
+              <div className="font-semibold">Today</div>
+              <div>{Math.round(daily.temperature_2m_max[todayIndex])}° / {Math.round(daily.temperature_2m_min[todayIndex])}°</div>
+              <div className="text-xs text-slate-500">Rain {daily.precipitation_probability_max[todayIndex] ?? 0}%</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {daily && (
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {daily.time.slice(1, 5).map((day, index) => {
+            const actualIndex = index + 1;
+            const code = daily.weather_code[actualIndex];
+            return (
+              <div key={day} className="rounded-2xl bg-white/45 p-3 text-sm text-slate-700">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{formatWeatherDate(day)}</span>
+                  <span>{weatherCodeToIcon(code)}</span>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">{weatherCodeToLabel(code)}</div>
+                <div className="mt-1 font-semibold">{Math.round(daily.temperature_2m_max[actualIndex])}° / {Math.round(daily.temperature_2m_min[actualIndex])}°</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
 function CookSlots({ cooks = [] }) {
   if (!cooks.length) return <div className="mt-2 text-xs text-slate-500">No cooking signup needed</div>;
 
@@ -680,12 +864,12 @@ function HomePage({ setActivePage, events }) {
           <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-yellow-200/50 blur-2xl" />
           <div className="absolute -bottom-12 left-16 h-40 w-40 rounded-full bg-sky-200/60 blur-2xl" />
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }} className="relative">
-            <Pill>Edgartown • beach week • June 2026</Pill>
+            <Pill>Vibes • Chaos • Beach • June 2026</Pill>
             <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight text-slate-900 sm:text-7xl">
-              Martha’s Vineyard, organized.
+              Let's Hit the Vineyard, Motherfuckers.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700 sm:text-lg">
-              Houses, beds, meals, packing lists, links, and the small amount of structure required to keep vacation feeling like vacation.
+              Stop asking me questions. Everything I know is right here.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
               {navItems.slice(1).map((item) => (
@@ -780,19 +964,7 @@ function HomePage({ setActivePage, events }) {
         </GlassCard>
       </div>
 
-      <GlassCard className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Martha’s Vineyard Weather</h2>
-            <p className="mt-1 text-sm text-slate-600">Live weather will plug in here during deployment.</p>
-          </div>
-          <div className="text-4xl">🌤️</div>
-        </div>
-        <div className="mt-5 rounded-[1.5rem] bg-gradient-to-br from-sky-100/80 to-yellow-100/70 p-5">
-          <div className="text-5xl font-light text-slate-900">72°</div>
-          <div className="mt-1 text-sm text-slate-600">Placeholder: breezy, beachy, suspiciously perfect</div>
-        </div>
-      </GlassCard>
+      <WeatherCard />
     </div>
   );
 }
@@ -803,7 +975,7 @@ function HousesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <Pill>sleeping arrangements</Pill>
+        <Pill>Where will I rest my head tonight?</Pill>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">The Houses</h1>
       </div>
 
@@ -941,7 +1113,7 @@ function PackingPage({ selectedGuest, isAdmin, groupItems, setGroupItems, sync }
       <div>
         <Pill>don’t forget the charger charger</Pill>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Packing Lists</h1>
-        <p className="mt-3 max-w-2xl leading-7 text-slate-700">Personal packing stays on your device. Group items sync across guests once Supabase is connected.</p>
+        <p className="mt-3 max-w-2xl leading-7 text-slate-700">Personal packing stays on your device. Group items sync across guests.</p>
         <div className="mt-3"><SyncBadge sync={sync} /></div>
       </div>
 
@@ -1091,7 +1263,7 @@ function MealsPage({ selectedGuest, meals, setMeals, isAdmin, sync }) {
     <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <Pill>the week in meals</Pill>
+          <Pill>Don't ask me what's for dinner.</Pill>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Meals</h1>
           <p className="mt-3 max-w-2xl leading-7 text-slate-700">Sign up to cook and add recipe notes. Guest dropdowns keep names tidy.</p>
           <div className="mt-3"><SyncBadge sync={sync} /></div>
@@ -1277,7 +1449,7 @@ function LinksPage({ links, setLinks, isAdmin, sync }) {
   return (
     <div className="space-y-5">
       <div>
-        <Pill>important stuff</Pill>
+        <Pill>I ran out of time so here are links</Pill>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Links</h1>
         <p className="mt-3 max-w-2xl leading-7 text-slate-700">Add, edit, and organize useful links in one place.</p>
         <div className="mt-3"><SyncBadge sync={sync} /></div>
