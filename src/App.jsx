@@ -1589,15 +1589,6 @@ function CalendarPage({ events, setEvents, selectedGuest, isAdmin, sync }) {
   );
 }
 
-function PwaInstallCard() {
-  return (
-    <GlassCard className="p-5">
-      <h2 className="text-xl font-semibold tracking-tight text-slate-900">Mobile app polish</h2>
-      <p className="mt-2 text-sm leading-6 text-slate-600">This build is ready for PWA setup during deployment: app icon, splash color, add-to-home-screen manifest, and offline shell.</p>
-    </GlassCard>
-  );
-}
-
 function ProductionStatusCard() {
   return (
     <GlassCard className="p-5">
@@ -1658,10 +1649,9 @@ export default function App() {
             {page}
           </motion.div>
         </AnimatePresence>
-        {activePage === "home" && (
-          <div className="mt-5 grid gap-5 md:grid-cols-2">
-            <PwaInstallCard />
-            {isAdmin && <ProductionStatusCard />}
+        {activePage === "home" && isAdmin && (
+          <div className="mt-5">
+            <ProductionStatusCard />
           </div>
         )}
       </main>
