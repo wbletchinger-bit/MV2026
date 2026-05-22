@@ -266,7 +266,7 @@ function normalizeEvents(events = []) {
     signupLimit: event.signupLimit || "",
     notes: event.notes || "",
     location: event.location || "",
-    editing: false,
+    editing: Boolean(event.editing),
   }));
 }
 
@@ -276,7 +276,7 @@ function normalizeLinks(links = []) {
     title: link.title || "Untitled Link",
     url: normalizeUrl(link.url || ""),
     category: link.category || inferLinkCategory(link.title || ""),
-    editing: false,
+    editing: Boolean(link.editing),
     createdAt: link.createdAt,
     createdBy: link.createdBy,
     updatedAt: link.updatedAt,
