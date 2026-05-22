@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { createClient } from "@supabase/supabase-js";
@@ -40,6 +41,7 @@ const sharedKeys = {
   meals: "meals",
   links: "links",
   groupPacking: "group_packing",
+  messages: "message_board",
 };
 
 const tripData = {
@@ -49,7 +51,7 @@ const tripData = {
       beds: 6,
       address: "10 Huckleberry Hill Rd, Edgartown, MA, 02539 United States of America",
       link: "https://www.vrbo.com/4372900ha",
-      checkIn: "4pm",
+      checkIn: "2pm",
       checkOut: "10am",
       amenities: ["Parking", "Outdoor Shower", "Kitchen"],
       image: "H1.jpg",
@@ -59,7 +61,7 @@ const tripData = {
       beds: 5,
       address: "167 Pennywise Path, Edgartown, MA, 02539 United States of America",
       link: "https://www.vrbo.com/4930799ha",
-      checkIn: "2pm",
+      checkIn: "4pm",
       checkOut: "10am",
       amenities: ["Pool", "Hot Tub", "Parking", "Outdoor Shower", "Kitchen"],
       image: "H2.jpg",
@@ -176,21 +178,22 @@ const tripData = {
 
 const navItems = [
   { id: "home", label: "Home", icon: "☀️" },
-  { id: "houses", label: "Houses", icon: "🏠" },
-  { id: "packing", label: "Packing", icon: "🧳" },
   { id: "meals", label: "Meals", icon: "🍽️" },
   { id: "calendar", label: "Calendar", icon: "🗓️" },
+  { id: "houses", label: "Houses", icon: "🏠" },
+  { id: "packing", label: "Packing", icon: "🧳" },
   { id: "links", label: "Links", icon: "🔗" },
+  { id: "messages", label: "Messages", icon: "💬" },
 ];
 
 const primaryNavItems = [
   { id: "home", label: "Home", icon: "☀️" },
-  { id: "houses", label: "Houses", icon: "🏠" },
   { id: "meals", label: "Meals", icon: "🍽️" },
+  { id: "calendar", label: "Calendar", icon: "🗓️" },
   { id: "more", label: "More", icon: "☰" },
 ];
 
-const moreItems = navItems.filter((item) => !["home", "houses", "meals"].includes(item.id));
+const moreItems = navItems.filter((item) => !["home", "meals", "calendar"].includes(item.id));
 const noNotesMeals = new Set(["Eat Out", "On your own", "Rehearsal Dinner", "Wedding"]);
 const linkCategories = ["Travel", "House", "Wedding", "Food", "Map", "Activity", "Other"];
 
@@ -229,6 +232,76 @@ const starterLinks = tripData.links.map((link, index) => ({
   ...link,
 }));
 
+const starterMessages = [];
+const MESSAGE_MAX_LENGTH = 500;
+const WEATHER_CACHE_KEY = "mv2026-weather-cache";
+const WEATHER_CACHE_TTL_MS = 15 * 60 * 1000;
+
+function normalizeGroupPackingItems(items = []) {
+  return items.map((item) => ({
+    ...item,
+    people: Array.isArray(item.people)
+      ? item.people.filter(Boolean)
+      : item.person?.trim()
+        ? [item.person.trim()]
+        : [],
+    person: undefined,
+  }));
+}
+
+function normalizeMeals(meals = []) {
+  return meals.map((meal) => ({
+    ...meal,
+    cooks: Array.isArray(meal.cooks) ? meal.cooks : [],
+    notes: meal.notes || "",
+    expanded: Boolean(meal.expanded),
+  }));
+}
+
+function normalizeEvents(events = []) {
+  return events.map((event) => ({
+    ...event,
+    attendees: Array.isArray(event.attendees) ? event.attendees.filter(Boolean) : [],
+    requiresSignup: Boolean(event.requiresSignup),
+    signupLimit: event.signupLimit || "",
+    notes: event.notes || "",
+    location: event.location || "",
+    editing: false,
+  }));
+}
+
+function normalizeLinks(links = []) {
+  return links.map((link, index) => ({
+    id: link.id || `link-${index}`,
+    title: link.title || "Untitled Link",
+    url: normalizeUrl(link.url || ""),
+    category: link.category || inferLinkCategory(link.title || ""),
+    editing: false,
+    createdAt: link.createdAt,
+    createdBy: link.createdBy,
+    updatedAt: link.updatedAt,
+    updatedBy: link.updatedBy,
+  }));
+}
+
+function normalizeMessages(messages = []) {
+  return messages.map((message, index) => ({
+    id: message.id || `message-${index}`,
+    author: message.author || "Anonymous",
+    body: String(message.body || "").trim().slice(0, MESSAGE_MAX_LENGTH),
+    createdAt: message.createdAt || new Date().toISOString(),
+  })).filter((message) => message.body);
+}
+
+function normalizeSharedValue(key, value) {
+  if (key === sharedKeys.groupPacking) return normalizeGroupPackingItems(value);
+  if (key === sharedKeys.meals) return normalizeMeals(value);
+  if (key === sharedKeys.events) return normalizeEvents(value);
+  if (key === sharedKeys.links) return normalizeLinks(value);
+  if (key === sharedKeys.messages) return normalizeMessages(value);
+  return value;
+}
+
 function usePersistentState(key, fallback) {
   const [value, setValue] = useState(fallback);
 
@@ -258,7 +331,7 @@ function withTimeout(promise, label, ms = 8000) {
 }
 
 async function fetchSharedValue(key, fallback) {
-  if (!supabase) return fallback;
+  if (!supabase) return normalizeSharedValue(key, fallback);
   const request = supabase
     .from("trip_app_state")
     .select("value")
@@ -269,11 +342,12 @@ async function fetchSharedValue(key, fallback) {
   if (error) throw error;
 
   if (!data) {
-    await saveSharedValue(key, fallback);
-    return fallback;
+    const normalizedFallback = normalizeSharedValue(key, fallback);
+    await saveSharedValue(key, normalizedFallback);
+    return normalizedFallback;
   }
 
-  return data.value ?? fallback;
+  return normalizeSharedValue(key, data.value ?? fallback);
 }
 
 async function saveSharedValue(key, value) {
@@ -324,7 +398,7 @@ function useSharedState(key, fallback) {
         (payload) => {
           if (payload.new?.value !== undefined) {
             skipNextSaveRef.current = true;
-            setValue(payload.new.value);
+            setValue(normalizeSharedValue(key, payload.new.value));
             setStatus("synced");
           }
         },
@@ -474,12 +548,21 @@ function useWeather() {
 
     async function loadWeather() {
       try {
+        const cached = window.localStorage.getItem(WEATHER_CACHE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed?.data && Date.now() - parsed.savedAt < WEATHER_CACHE_TTL_MS) {
+            setWeather({ status: "loaded", data: parsed.data, error: "" });
+            return;
+          }
+        }
         setWeather({ status: "loading", data: null, error: "" });
         const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
           signal: controller.signal,
         });
         if (!response.ok) throw new Error("Weather request failed.");
         const data = await response.json();
+        window.localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
         setWeather({ status: "loaded", data, error: "" });
       } catch (error) {
         if (error.name === "AbortError") return;
@@ -529,13 +612,14 @@ function runSelfTests() {
   console.assert(normalizeUrl("example.com") === "https://example.com", "normalizeUrl should add https");
   console.assert(inferLinkCategory("Wedding Website") === "Wedding", "Wedding links should be categorized");
   console.assert(sharedKeys.events === "calendar_events", "Shared state keys should be stable");
+  console.assert(sharedKeys.messages === "message_board", "Message board shared key should be stable");
   console.assert(typeof withTimeout === "function", "withTimeout should exist for Supabase diagnostics");
   console.assert(tripData.guests.includes("Luke") && !tripData.guests.includes("Zach"), "Guest list should include Luke instead of Zach");
   console.assert(weatherCodeToLabel(0) === "Clear", "Weather code labels should work");
   console.assert(weatherCodeToIcon(61) === "🌧️", "Weather code icons should work");
 }
 
-if (typeof window !== "undefined") runSelfTests();
+if (import.meta.env.DEV && typeof window !== "undefined") runSelfTests();
 
 function SyncBadge({ sync }) {
   if (!sync) return null;
@@ -622,7 +706,7 @@ function NameSelect({ value, onChange, selectedGuest, placeholder = "Choose name
     >
       <option value="">{selectedGuest ? `Use ${selectedGuest}` : placeholder}</option>
       {selectedGuest && <option value={selectedGuest}>{selectedGuest}</option>}
-      {tripData.guests.map((guest) => (
+      {tripData.guests.filter((guest) => guest !== selectedGuest).map((guest) => (
         <option key={guest} value={guest}>
           {guest}
         </option>
@@ -659,7 +743,7 @@ function Header({ activePage, setActivePage }) {
     <header className="sticky top-0 z-20 border-b border-white/40 bg-white/45 backdrop-blur-2xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <button type="button" onClick={() => setActivePage("home")} className="text-left">
-          <div className="text-xs uppercase tracking-[0.28em] text-sky-700/80">Martha's Vineyard 2026</div>
+          <div className="text-xs uppercase tracking-[0.28em] text-sky-700/80">MV 2026</div>
           <div className="text-xl font-semibold tracking-tight text-slate-800">Vacation HQ</div>
         </button>
 
@@ -691,10 +775,25 @@ function MobileNav({ activePage, setActivePage, selectedGuest, setSelectedGuest,
     <>
       <AnimatePresence>
         {moreOpen && (
+          <motion.button
+            type="button"
+            aria-label="Close menu"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setMoreOpen(false)}
+            className="fixed inset-0 z-20 cursor-default bg-transparent md:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {moreOpen && (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
+            onClick={(event) => event.stopPropagation()}
             className="fixed bottom-24 left-3 right-3 z-30 rounded-[1.6rem] border border-white/60 bg-white/75 p-3 shadow-2xl shadow-slate-900/10 backdrop-blur-2xl md:hidden"
           >
             <div className="mb-3 rounded-[1.25rem] bg-white/55 p-3">
@@ -727,7 +826,7 @@ function MobileNav({ activePage, setActivePage, selectedGuest, setSelectedGuest,
         )}
       </AnimatePresence>
 
-      <nav className="fixed bottom-3 left-3 right-3 z-30 grid grid-cols-4 rounded-[1.7rem] border border-white/60 bg-white/65 p-2 shadow-2xl shadow-slate-900/10 backdrop-blur-2xl md:hidden">
+      <nav onClick={(event) => event.stopPropagation()} className="fixed bottom-3 left-3 right-3 z-30 grid grid-cols-4 rounded-[1.7rem] border border-white/60 bg-white/65 p-2 shadow-2xl shadow-slate-900/10 backdrop-blur-2xl md:hidden">
         {primaryNavItems.map((item) => {
           const isActive = item.id === "more" ? moreItems.some((more) => more.id === activePage) : activePage === item.id;
           return (
@@ -791,7 +890,7 @@ function WeatherCard() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Martha’s Vineyard Weather</h2>
-          <p className="mt-1 text-sm text-slate-600">Live forecast for Edgartown.</p>
+          <p className="mt-1 text-sm text-slate-600">Current Edgartown forecast.</p>
         </div>
         <div className="text-4xl">{weatherCodeToIcon(todayCode)}</div>
       </div>
@@ -864,12 +963,12 @@ function HomePage({ setActivePage, events }) {
           <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-yellow-200/50 blur-2xl" />
           <div className="absolute -bottom-12 left-16 h-40 w-40 rounded-full bg-sky-200/60 blur-2xl" />
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }} className="relative">
-            <Pill>Vibes • Chaos • Beach • June 2026</Pill>
+            <Pill>Marthas's Vineyard 2026</Pill>
             <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight text-slate-900 sm:text-7xl">
               Let's Hit the Vineyard, Motherfuckers.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700 sm:text-lg">
-              Stop asking me questions. Everything I know is right here.
+              Stop asking me questions, Everything I know is right here.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
               {navItems.slice(1).map((item) => (
@@ -970,12 +1069,12 @@ function HomePage({ setActivePage, events }) {
 }
 
 function HousesPage() {
-  const [openHouse, setOpenHouse] = useState(tripData.houses[0].name);
+  const [openHouse, setOpenHouse] = useState("");
 
   return (
     <div className="space-y-5">
       <div>
-        <Pill>Where will I rest my head tonight?</Pill>
+        <Pill>sleeping arrangements</Pill>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">The Houses</h1>
       </div>
 
@@ -1113,7 +1212,7 @@ function PackingPage({ selectedGuest, isAdmin, groupItems, setGroupItems, sync }
       <div>
         <Pill>don’t forget the charger charger</Pill>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Packing Lists</h1>
-        <p className="mt-3 max-w-2xl leading-7 text-slate-700">Personal packing stays on your device. Group items sync across guests.</p>
+        <p className="mt-3 max-w-2xl leading-7 text-slate-700">Personal packing stays on your device. Group items sync across guests once Supabase is connected.</p>
         <div className="mt-3"><SyncBadge sync={sync} /></div>
       </div>
 
@@ -1263,7 +1362,7 @@ function MealsPage({ selectedGuest, meals, setMeals, isAdmin, sync }) {
     <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <Pill>Don't ask me what's for dinner.</Pill>
+          <Pill>the week in meals</Pill>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Meals</h1>
           <p className="mt-3 max-w-2xl leading-7 text-slate-700">Sign up to cook and add recipe notes. Guest dropdowns keep names tidy.</p>
           <div className="mt-3"><SyncBadge sync={sync} /></div>
@@ -1283,7 +1382,6 @@ function MealsPage({ selectedGuest, meals, setMeals, isAdmin, sync }) {
               <div className="border-b border-white/50 bg-white/30 px-5 py-4">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{label}</h2>
-                  <Pill>{dayMeals.length} meals</Pill>
                 </div>
               </div>
 
@@ -1351,34 +1449,34 @@ function MealsPage({ selectedGuest, meals, setMeals, isAdmin, sync }) {
   );
 }
 
-function LinkCard({ link, updateLink, deleteLink, isAdmin }) {
+function LinkCard({ link, updateLink, deleteLink, isAdmin, selectedGuest }) {
   if (link.editing) {
     return (
       <div className="rounded-[2rem] border border-white/50 bg-white/45 p-5 shadow-xl shadow-sky-900/5 backdrop-blur-xl">
         <div className="grid gap-3">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">Title</span>
-            <input value={link.title} onChange={(event) => updateLink(link.id, { title: event.target.value })} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none" />
+            <input value={link.title} onChange={(event) => updateLink(link.id, { title: event.target.value, updatedAt: new Date().toISOString(), updatedBy: selectedGuest || "Unknown" })} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">URL</span>
             <input
               value={link.url}
-              onChange={(event) => updateLink(link.id, { url: event.target.value })}
-              onBlur={(event) => updateLink(link.id, { url: normalizeUrl(event.target.value) })}
+              onChange={(event) => updateLink(link.id, { url: event.target.value, updatedAt: new Date().toISOString(), updatedBy: selectedGuest || "Unknown" })}
+              onBlur={(event) => updateLink(link.id, { url: normalizeUrl(event.target.value), updatedAt: new Date().toISOString(), updatedBy: selectedGuest || "Unknown" })}
               className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none"
             />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">Category</span>
-            <select value={link.category || "Other"} onChange={(event) => updateLink(link.id, { category: event.target.value })} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none">
+            <select value={link.category || "Other"} onChange={(event) => updateLink(link.id, { category: event.target.value, updatedAt: new Date().toISOString(), updatedBy: selectedGuest || "Unknown" })} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none">
               {linkCategories.map((category) => <option key={category}>{category}</option>)}
             </select>
           </label>
         </div>
 
         <div className="mt-4 flex gap-2">
-          <button type="button" onClick={() => updateLink(link.id, { url: normalizeUrl(link.url), editing: false })} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+          <button type="button" onClick={() => updateLink(link.id, { url: normalizeUrl(link.url), editing: false, updatedAt: new Date().toISOString(), updatedBy: selectedGuest || "Unknown" })} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
             Done
           </button>
           {isAdmin && (
@@ -1416,8 +1514,9 @@ function LinkCard({ link, updateLink, deleteLink, isAdmin }) {
   );
 }
 
-function LinksPage({ links, setLinks, isAdmin, sync }) {
+function LinksPage({ links, setLinks, isAdmin, sync, selectedGuest }) {
   const [linkForm, setLinkForm] = useState({ title: "", url: "", category: "Other" });
+  const [addLinkOpen, setAddLinkOpen] = useState(false);
 
   function addLink(event) {
     event.preventDefault();
@@ -1433,9 +1532,12 @@ function LinksPage({ links, setLinks, isAdmin, sync }) {
         url,
         category: linkForm.category,
         editing: false,
+        createdAt: new Date().toISOString(),
+        createdBy: selectedGuest || "Unknown",
       },
     ]);
     setLinkForm({ title: "", url: "", category: "Other" });
+    setAddLinkOpen(false);
   }
 
   function updateLink(linkId, updates) {
@@ -1449,38 +1551,60 @@ function LinksPage({ links, setLinks, isAdmin, sync }) {
   return (
     <div className="space-y-5">
       <div>
-        <Pill>I ran out of time so here are links</Pill>
+        <Pill>important stuff</Pill>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Links</h1>
         <p className="mt-3 max-w-2xl leading-7 text-slate-700">Add, edit, and organize useful links in one place.</p>
         <div className="mt-3"><SyncBadge sync={sync} /></div>
       </div>
 
-      <GlassCard className="p-4 sm:p-5">
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Add a Link</h2>
-          <form onSubmit={addLink} className="mt-4 grid gap-3">
-            <div className="grid gap-3 sm:grid-cols-[1fr_1.25fr_170px]">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Title</span>
-                <input value={linkForm.title} onChange={(event) => setLinkForm((current) => ({ ...current, title: event.target.value }))} placeholder="Bike rentals" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">URL</span>
-                <input value={linkForm.url} onChange={(event) => setLinkForm((current) => ({ ...current, url: event.target.value }))} placeholder="example.com" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Category</span>
-                <select value={linkForm.category} onChange={(event) => setLinkForm((current) => ({ ...current, category: event.target.value }))} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none">
-                  {linkCategories.map((category) => <option key={category}>{category}</option>)}
-                </select>
-              </label>
-            </div>
-            <button className="w-fit rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white">Add link</button>
-          </form>
-        </GlassCard>
+      <GlassCard className="overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setAddLinkOpen((open) => !open)}
+          className="flex w-full items-center justify-between gap-4 p-4 text-left sm:p-5"
+        >
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Add a Link</h2>
+            <p className="mt-1 text-sm text-slate-600">Open this when you need to add something useful.</p>
+          </div>
+          <div className="rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-slate-700">{addLinkOpen ? "−" : "+"}</div>
+        </button>
+        <AnimatePresence initial={false}>
+          {addLinkOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <form onSubmit={addLink} className="grid gap-3 border-t border-white/50 p-4 sm:p-5">
+                <div className="grid gap-3 sm:grid-cols-[1fr_1.25fr_170px]">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Title</span>
+                    <input value={linkForm.title} onChange={(event) => setLinkForm((current) => ({ ...current, title: event.target.value }))} placeholder="Bike rentals" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">URL</span>
+                    <input value={linkForm.url} onChange={(event) => setLinkForm((current) => ({ ...current, url: event.target.value }))} placeholder="example.com" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Category</span>
+                    <select value={linkForm.category} onChange={(event) => setLinkForm((current) => ({ ...current, category: event.target.value }))} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none">
+                      {linkCategories.map((category) => <option key={category}>{category}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <button className="w-fit rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white">Add link</button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </GlassCard>
 
       <div className="grid gap-4 sm:grid-cols-2">
         {links.map((link) => (
-          <LinkCard key={link.id} link={link} updateLink={updateLink} deleteLink={deleteLink} isAdmin={isAdmin} />
+          <LinkCard key={link.id} link={link} updateLink={updateLink} deleteLink={deleteLink} isAdmin={isAdmin} selectedGuest={selectedGuest} />
         ))}
       </div>
     </div>
@@ -1493,6 +1617,10 @@ function CalendarEventCard({ event, dayOptions, updateEvent, deleteEvent, addAtt
   const isFull = Boolean(limit && event.attendees.length >= limit);
   const signupValue = signupName || selectedGuest || "";
 
+  function editMetadata() {
+    return { updatedAt: new Date().toISOString(), updatedBy: selectedGuest || "Unknown" };
+  }
+
   function handleSignup(submitEvent) {
     submitEvent.preventDefault();
     addAttendee(event.id, signupValue);
@@ -1503,16 +1631,16 @@ function CalendarEventCard({ event, dayOptions, updateEvent, deleteEvent, addAtt
     return (
       <div className="rounded-[1.45rem] bg-white/50 p-4 shadow-sm">
         <div className="grid gap-3 sm:grid-cols-[150px_130px_1fr]">
-          <select value={event.day} onChange={(changeEvent) => updateEvent(event.id, { day: changeEvent.target.value })} className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none">
+          <select value={event.day} onChange={(changeEvent) => updateEvent(event.id, { day: changeEvent.target.value, ...editMetadata() })} className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none">
             {dayOptions.map((day) => <option key={day}>{day}</option>)}
           </select>
-          <input value={event.time} onChange={(changeEvent) => updateEvent(event.id, { time: changeEvent.target.value })} placeholder="Time" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" />
-          <input value={event.title} onChange={(changeEvent) => updateEvent(event.id, { title: changeEvent.target.value })} placeholder="Title" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" />
+          <input value={event.time} onChange={(changeEvent) => updateEvent(event.id, { time: changeEvent.target.value, ...editMetadata() })} placeholder="Time" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" />
+          <input value={event.title} onChange={(changeEvent) => updateEvent(event.id, { title: changeEvent.target.value, ...editMetadata() })} placeholder="Title" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" />
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px]">
-          <input value={event.location} onChange={(changeEvent) => updateEvent(event.id, { location: changeEvent.target.value })} placeholder="Location" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" />
-          <input value={event.signupLimit} disabled={!event.requiresSignup} onChange={(changeEvent) => updateEvent(event.id, { signupLimit: changeEvent.target.value })} placeholder="Signup limit" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400 disabled:opacity-40" />
+          <input value={event.location} onChange={(changeEvent) => updateEvent(event.id, { location: changeEvent.target.value, ...editMetadata() })} placeholder="Location" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" />
+          <input value={event.signupLimit} disabled={!event.requiresSignup} onChange={(changeEvent) => updateEvent(event.id, { signupLimit: changeEvent.target.value, ...editMetadata() })} placeholder="Signup limit" className="rounded-full bg-white/75 px-4 py-2.5 text-sm outline-none placeholder:text-slate-400 disabled:opacity-40" />
         </div>
 
         <label className="mt-3 flex w-fit items-center gap-3 rounded-full bg-white/55 px-4 py-2.5 text-sm font-semibold text-slate-700">
@@ -1523,13 +1651,14 @@ function CalendarEventCard({ event, dayOptions, updateEvent, deleteEvent, addAtt
               requiresSignup: changeEvent.target.checked,
               signupLimit: changeEvent.target.checked ? event.signupLimit : "",
               attendees: changeEvent.target.checked ? event.attendees : [],
+              ...editMetadata(),
             })}
             className="h-4 w-4 accent-slate-900"
           />
           This event needs signups
         </label>
 
-        <textarea value={event.notes} onChange={(changeEvent) => updateEvent(event.id, { notes: changeEvent.target.value })} placeholder="Notes" className="mt-3 min-h-24 w-full rounded-[1.25rem] bg-white/75 p-4 text-sm leading-6 outline-none placeholder:text-slate-400" />
+        <textarea value={event.notes} onChange={(changeEvent) => updateEvent(event.id, { notes: changeEvent.target.value, ...editMetadata() })} placeholder="Notes" className="mt-3 min-h-24 w-full rounded-[1.25rem] bg-white/75 p-4 text-sm leading-6 outline-none placeholder:text-slate-400" />
 
         <div className="mt-3 flex gap-2">
           <button type="button" onClick={() => updateEvent(event.id, { editing: false })} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Done</button>
@@ -1546,6 +1675,7 @@ function CalendarEventCard({ event, dayOptions, updateEvent, deleteEvent, addAtt
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{event.time || "Anytime"}</div>
           <div className="mt-1 text-xl font-semibold tracking-tight text-slate-900">{event.title}</div>
           {event.location && <div className="mt-1 text-sm text-slate-600">{event.location}</div>}
+          {event.updatedBy && <div className="mt-2 text-xs text-slate-500">Edited by {event.updatedBy}</div>}
         </div>
         <button type="button" onClick={() => updateEvent(event.id, { editing: true })} className="rounded-full bg-white/60 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white">
           Edit
@@ -1584,8 +1714,103 @@ function CalendarEventCard({ event, dayOptions, updateEvent, deleteEvent, addAtt
   );
 }
 
+function MessageBoardPage({ messages, setMessages, selectedGuest, isAdmin, sync }) {
+  const [messageText, setMessageText] = useState("");
+  const [messageAuthor, setMessageAuthor] = useState(selectedGuest || "");
+
+  useEffect(() => {
+    if (selectedGuest && !messageAuthor) setMessageAuthor(selectedGuest);
+  }, [selectedGuest, messageAuthor]);
+
+  function addMessage(event) {
+    event.preventDefault();
+    const body = messageText.trim();
+    const author = (messageAuthor || selectedGuest || "Anonymous").trim();
+    if (!body) return;
+
+    setMessages((current) => [
+      {
+        id: `${Date.now()}-${body.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32)}`,
+        author,
+        body,
+        createdAt: new Date().toISOString(),
+      },
+      ...current,
+    ]);
+    setMessageText("");
+  }
+
+  function deleteMessage(messageId) {
+    setMessages((current) => current.filter((message) => message.id !== messageId));
+  }
+
+  function formatMessageDate(value) {
+    if (!value) return "Just now";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Just now";
+    return date.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <Pill>Trash Talking Time, who wants to fight with Carl?</Pill>
+        <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-900">Message Board</h1>
+        <p className="mt-3 max-w-2xl leading-7 text-slate-700">Post updates, requests, ferry panic, beach plans, or whatever needs to escape the group chat.</p>
+        <div className="mt-3"><SyncBadge sync={sync} /></div>
+      </div>
+
+      <GlassCard className="p-4 sm:p-5">
+        <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Add a Message</h2>
+        <form onSubmit={addMessage} className="mt-4 grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Name</span>
+              <NameSelect value={messageAuthor} onChange={setMessageAuthor} selectedGuest={selectedGuest} placeholder="Choose name" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Message</span>
+              <input
+                value={messageText}
+                onChange={(event) => setMessageText(event.target.value)}
+                placeholder="Who wants coffee / beach / emotional support sunscreen?"
+                className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400"
+              />
+            </label>
+          </div>
+          <button className="w-fit rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white">Post message</button>
+        </form>
+      </GlassCard>
+
+      <div className="space-y-3">
+        {messages.length ? messages.map((message) => (
+          <GlassCard key={message.id} className="p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{message.author || "Anonymous"}</div>
+                <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{formatMessageDate(message.createdAt)}</div>
+              </div>
+              {isAdmin && (
+                <ConfirmButton message="Delete this message?" onConfirm={() => deleteMessage(message.id)} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white">
+                  Delete
+                </ConfirmButton>
+              )}
+            </div>
+            <p className="mt-3 whitespace-pre-wrap text-base leading-7 text-slate-700">{message.body}</p>
+          </GlassCard>
+        )) : (
+          <GlassCard className="p-5 text-sm text-slate-600">
+            No messages yet. Suspiciously peaceful.
+          </GlassCard>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CalendarPage({ events, setEvents, selectedGuest, isAdmin, sync }) {
   const dayOptions = tripDays.map((day) => day.day);
+  const [addEventOpen, setAddEventOpen] = useState(false);
   const [eventForm, setEventForm] = useState({
     day: tripDays[0].day,
     time: "",
@@ -1629,10 +1854,13 @@ function CalendarPage({ events, setEvents, selectedGuest, isAdmin, sync }) {
         notes: eventForm.notes.trim(),
         attendees: [],
         editing: false,
+        createdAt: new Date().toISOString(),
+        createdBy: selectedGuest || "Unknown",
       },
     ]);
 
     setEventForm({ day: tripDays[0].day, time: "", title: "", location: "", notes: "", requiresSignup: false, signupLimit: "" });
+    setAddEventOpen(false);
   }
 
   function updateEvent(eventId, updates) {
@@ -1671,40 +1899,62 @@ function CalendarPage({ events, setEvents, selectedGuest, isAdmin, sync }) {
         {isAdmin && <ConfirmButton message="Reset the full calendar?" onConfirm={() => setEvents(starterEvents)} className="w-fit rounded-full bg-white/55 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white/80">Reset calendar</ConfirmButton>}
       </div>
 
-      <GlassCard className="p-4 sm:p-5">
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Add an Event</h2>
-          <form onSubmit={addEvent} className="mt-4 grid gap-3">
-            <div className="grid gap-3 sm:grid-cols-[180px_140px_1fr]">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Day</span>
-                <select value={eventForm.day} onChange={(event) => setEventForm((current) => ({ ...current, day: event.target.value }))} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none">
-                  {tripDays.map(({ day, label }) => <option key={day} value={day}>{label}</option>)}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Time</span>
-                <input value={eventForm.time} onChange={(event) => setEventForm((current) => ({ ...current, time: event.target.value }))} placeholder="3:00 PM" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Event</span>
-                <input value={eventForm.title} onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))} placeholder="Beach, ferry run, grocery mission..." className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
-              </label>
-            </div>
+      <GlassCard className="overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setAddEventOpen((open) => !open)}
+          className="flex w-full items-center justify-between gap-4 p-4 text-left sm:p-5"
+        >
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Add an Event</h2>
+            <p className="mt-1 text-sm text-slate-600">Open this when there’s an actual plan, or at least a convincing rumor.</p>
+          </div>
+          <div className="rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-slate-700">{addEventOpen ? "−" : "+"}</div>
+        </button>
+        <AnimatePresence initial={false}>
+          {addEventOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <form onSubmit={addEvent} className="grid gap-3 border-t border-white/50 p-4 sm:p-5">
+                <div className="grid gap-3 sm:grid-cols-[180px_140px_1fr]">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Day</span>
+                    <select value={eventForm.day} onChange={(event) => setEventForm((current) => ({ ...current, day: event.target.value }))} className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none">
+                      {tripDays.map(({ day, label }) => <option key={day} value={day}>{label}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Time</span>
+                    <input value={eventForm.time} onChange={(event) => setEventForm((current) => ({ ...current, time: event.target.value }))} placeholder="3:00 PM" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Event</span>
+                    <input value={eventForm.title} onChange={(event) => setEventForm((current) => ({ ...current, title: event.target.value }))} placeholder="Beach, ferry run, grocery mission..." className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
+                  </label>
+                </div>
 
-            <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-              <input value={eventForm.location} onChange={(event) => setEventForm((current) => ({ ...current, location: event.target.value }))} placeholder="Location" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
-              <input value={eventForm.signupLimit} disabled={!eventForm.requiresSignup} onChange={(event) => setEventForm((current) => ({ ...current, signupLimit: event.target.value }))} placeholder="Signup limit" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400 disabled:opacity-40" />
-            </div>
+                <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
+                  <input value={eventForm.location} onChange={(event) => setEventForm((current) => ({ ...current, location: event.target.value }))} placeholder="Location" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400" />
+                  <input value={eventForm.signupLimit} disabled={!eventForm.requiresSignup} onChange={(event) => setEventForm((current) => ({ ...current, signupLimit: event.target.value }))} placeholder="Signup limit" className="w-full rounded-full bg-white/70 px-4 py-3 text-sm outline-none placeholder:text-slate-400 disabled:opacity-40" />
+                </div>
 
-            <label className="flex w-fit items-center gap-3 rounded-full bg-white/45 px-4 py-3 text-sm font-semibold text-slate-700">
-              <input type="checkbox" checked={eventForm.requiresSignup} onChange={(event) => setEventForm((current) => ({ ...current, requiresSignup: event.target.checked, signupLimit: event.target.checked ? current.signupLimit : "" }))} className="h-4 w-4 accent-slate-900" />
-              This event needs signups
-            </label>
+                <label className="flex w-fit items-center gap-3 rounded-full bg-white/45 px-4 py-3 text-sm font-semibold text-slate-700">
+                  <input type="checkbox" checked={eventForm.requiresSignup} onChange={(event) => setEventForm((current) => ({ ...current, requiresSignup: event.target.checked, signupLimit: event.target.checked ? current.signupLimit : "" }))} className="h-4 w-4 accent-slate-900" />
+                  This event needs signups
+                </label>
 
-            <textarea value={eventForm.notes} onChange={(event) => setEventForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes, links, reminders..." className="min-h-24 w-full rounded-[1.25rem] bg-white/70 p-4 text-sm leading-6 outline-none placeholder:text-slate-400" />
-            <button className="w-fit rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white">Add event</button>
-          </form>
-        </GlassCard>
+                <textarea value={eventForm.notes} onChange={(event) => setEventForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Notes, links, reminders..." className="min-h-24 w-full rounded-[1.25rem] bg-white/70 p-4 text-sm leading-6 outline-none placeholder:text-slate-400" />
+                <button className="w-fit rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white">Add event</button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </GlassCard>
 
       <div className="space-y-5">
         {tripDays.map(({ day, label }) => {
@@ -1798,6 +2048,7 @@ export default function App() {
   const [meals, setMeals, mealsSync] = useSharedState(sharedKeys.meals, initialMeals);
   const [links, setLinks, linksSync] = useSharedState(sharedKeys.links, starterLinks);
   const [groupItems, setGroupItems, groupPackingSync] = useSharedState(sharedKeys.groupPacking, initialGroupPacking);
+  const [messages, setMessages, messagesSync] = useSharedState(sharedKeys.messages, starterMessages);
 
   const page = useMemo(() => {
     if (activePage === "home") return <HomePage setActivePage={setActivePage} events={events} />;
@@ -1808,8 +2059,9 @@ export default function App() {
     if (activePage === "meals") return <MealsPage selectedGuest={selectedGuest} meals={meals} setMeals={setMeals} isAdmin={isAdmin} sync={mealsSync} />;
     if (activePage === "calendar") return <CalendarPage events={events} setEvents={setEvents} selectedGuest={selectedGuest} isAdmin={isAdmin} sync={eventsSync} />;
     if (activePage === "links") return <LinksPage links={links} setLinks={setLinks} isAdmin={isAdmin} sync={linksSync} />;
+    if (activePage === "messages") return <MessageBoardPage messages={messages} setMessages={setMessages} selectedGuest={selectedGuest} isAdmin={isAdmin} sync={messagesSync} />;
     return <HomePage setActivePage={setActivePage} events={events} />;
-  }, [activePage, events, eventsSync, groupItems, groupPackingSync, isAdmin, links, linksSync, meals, mealsSync, selectedGuest, setEvents, setGroupItems, setLinks, setMeals]);
+  }, [activePage, events, eventsSync, groupItems, groupPackingSync, isAdmin, links, linksSync, meals, mealsSync, messages, messagesSync, selectedGuest, setEvents, setGroupItems, setLinks, setMeals, setMessages]);
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top_left,_rgba(252,211,77,0.32),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(125,211,252,0.38),_transparent_34%),linear-gradient(135deg,_#f8fbff_0%,_#fff8e8_45%,_#eaf8ff_100%)] pb-28 font-sans text-slate-800 md:pb-10">
