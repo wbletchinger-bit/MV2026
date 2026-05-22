@@ -743,7 +743,7 @@ function Header({ activePage, setActivePage }) {
     <header className="sticky top-0 z-20 border-b border-white/40 bg-white/45 backdrop-blur-2xl">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
         <button type="button" onClick={() => setActivePage("home")} className="text-left">
-          <div className="text-xs uppercase tracking-[0.28em] text-sky-700/80">MV 2026</div>
+          <div className="text-xs uppercase tracking-[0.28em] text-sky-700/80">Martha's Vineyard 2026</div>
           <div className="text-xl font-semibold tracking-tight text-slate-800">Vacation HQ</div>
         </button>
 
@@ -963,7 +963,7 @@ function HomePage({ setActivePage, events }) {
           <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-yellow-200/50 blur-2xl" />
           <div className="absolute -bottom-12 left-16 h-40 w-40 rounded-full bg-sky-200/60 blur-2xl" />
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }} className="relative">
-            <Pill>Marthas's Vineyard 2026</Pill>
+            <Pill>Beach | Chaos | Friends</Pill>
             <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[0.98] tracking-tight text-slate-900 sm:text-7xl">
               Let's Hit the Vineyard, Motherfuckers.
             </h1>
