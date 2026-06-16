@@ -70,11 +70,11 @@ const tripData = {
   bedAssignments: [
     { house: "The Big House", bed: "2nd Floor Queen 1", names: "Andrew, Sara", week: "Full", image: "H1-Q1.jpg" },
     { house: "The Big House", bed: "2nd Floor Queen 2", names: "Luke, Maddie", week: "Full", image: "H1-Q2.jpg" },
-    { house: "The Big House", bed: "2nd Floor Queen 3", names: "Anatol", week: "Half", image: "H1-Q3.jpg" },
+    { house: "The Big House", bed: "2nd Floor Queen 3", names: "Carl, Aye", week: "Full", image: "H1-Q3.jpg" },
     { house: "The Big House", bed: "2nd Floor Queen 4", names: "Skyler, Jack", week: "Full", image: "H1-Q4.jpg" },
     { house: "The Big House", bed: "2nd Floor King", names: "Will, Alicia", week: "Full", image: "H1-K1.jpg" },
     { house: "The Big House", bed: "1st Floor King/Bath", names: "Erita, Kyle", week: "Full", image: "H1-K2.jpg" },
-    { house: "The Kid's Hangout", bed: "Double Bed", names: "Carl, Aye", week: "Full", image: "H2-Double.jpg" },
+    { house: "The Kid's Hangout", bed: "Double Bed", names: "Anatol", week: "Half", image: "H2-Double.jpg" },
     { house: "The Kid's Hangout", bed: "Futon", names: "Empty", week: "N/A", image: "H2-Futon.jpg" },
     { house: "The Kid's Hangout", bed: "Twin Room", names: "Enti, Eric", week: "Half", image: "H2-Twin.jpg" },
     { house: "The Kid's Hangout", bed: "King", names: "Adrian, Martine, Valentina, Genevieve", week: "Full", image: "H2-King.jpg" },
